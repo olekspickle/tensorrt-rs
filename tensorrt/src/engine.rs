@@ -2,6 +2,7 @@ use crate::{
     error::{TRTError, TRTResult},
     tensor::{Shape, Tensor},
 };
+use crate::DataType;
 use cuda_rs::stream::CuStream;
 use tensorrt_rs_sys::{
     runtime::{Runtime, CudaEngine, ExecutionContext},
@@ -147,6 +148,64 @@ impl TRTEngine {
 
     pub fn log(&mut self, level: Severity, msg: &str) {
         self.runtime.as_mut().unwrap().logger().log(level, msg);
+    }
+
+    pub fn get_tensor_shape(&self, name: &str) -> Option<Vec<i32>> {
+        self.engine.as_ref().map(|e| e.get_tensor_shape(name))
+    }
+
+    pub fn get_tensor_dtype(&self, name: &str) -> Option<DataType> {
+        self.engine.as_ref().map(|e| e.get_tensor_dtype(name))
+    }
+
+    pub fn io_tensor_names(&self) -> Vec<(String, bool)> {
+        self.engine.as_ref().map_or(Vec::new(), |e| {
+            let count = e.get_num_io_tensors();
+            (0..count)
+                .map(|i| {
+                    let name = e.get_io_tensor_name(i).to_string();
+                    let is_input = e.get_tensor_io_mode(&name).is_input();
+                    (name, is_input)
+                })
+                .collect()
+        })
+    }
+
+    pub fn enumerate_tensors(&self) -> Vec<(String, Vec<i32>, DataType, bool)> {
+        self.engine.as_ref().map_or(Vec::new(), |e| {
+            let count = e.get_num_io_tensors();
+            (0..count)
+                .map(|i| {
+                    let name = e.get_io_tensor_name(i).to_string();
+                    let shape = e.get_tensor_shape(&name);
+                    let dtype = e.get_tensor_dtype(&name);
+                    let is_input = e.get_tensor_io_mode(&name).is_input();
+                    (name, shape, dtype, is_input)
+                })
+                .collect()
+        })
+    }
+
+    pub fn allocate_io_tensors_float(&mut self, stream: &CuStream) -> TRTResult<()> {
+        let tensors = self.enumerate_tensors();
+        let context = self.context.as_mut()
+            .ok_or(TRTError::ExecutionContextNotInitialized)?;
+
+        for (name, shape, _dtype, is_input) in &tensors {
+            let shape = Shape(shape.clone());
+            let tensor = Tensor::empty(&shape, DataType::FLOAT, stream)?;
+            let ptr = unsafe { tensor.get_raw_ptr() };
+            if !context.set_tensor_address(name, ptr as _) {
+                return Err(TRTError::InvalidAddress);
+            }
+            if *is_input {
+                if !context.set_input_shape(name, &shape.0) {
+                    return Err(TRTError::ShapeError(shape.0.clone()));
+                }
+            }
+            self.tensors.insert(name.clone(), tensor);
+        }
+        Ok(())
     }
 }
 
