@@ -4,9 +4,13 @@ use crate::{
 };
 use crate::DataType;
 use cuda_rs::stream::CuStream;
+use cuda_rs_sys::{
+    cuGraphDestroy, cuGraphExecDestroy, cuGraphInstantiate_v2, cuGraphLaunch,
+    cuStreamBeginCapture_v2, cuStreamEndCapture, CUgraph, CUgraphExec,
+};
 use tensorrt_rs_sys::{
-    runtime::{Runtime, CudaEngine, ExecutionContext},
     logger::Severity,
+    runtime::{CudaEngine, ExecutionContext, Runtime},
 };
 use std::{collections::HashMap, fs, path::Path};
 
@@ -16,6 +20,8 @@ pub struct TRTEngine {
     context: Option<ExecutionContext>,
     stream: CuStream,
     tensors: HashMap<String, Tensor>,
+    cuda_graph_exec: Option<CUgraphExec>,
+    graph_captured_shapes: HashMap<String, Shape>,
 }
 
 impl TRTEngine {
@@ -37,6 +43,8 @@ impl TRTEngine {
             context: None,
             stream: stream.clone(),
             tensors: HashMap::new(),
+            cuda_graph_exec: None,
+            graph_captured_shapes: HashMap::new(),
         })
     }
 
@@ -107,7 +115,75 @@ impl TRTEngine {
         Ok(())
     }
 
-    // TODO: use cuda graph
+    pub fn capture_cuda_graph(&mut self) -> TRTResult<()> {
+        let context = self
+            .context
+            .as_mut()
+            .ok_or(TRTError::ExecutionContextNotInitialized)?;
+
+        self.graph_captured_shapes.clear();
+        for (name, tensor) in &self.tensors {
+            self.graph_captured_shapes
+                .insert(name.clone(), tensor.shape().clone());
+        }
+
+        let stream_raw = unsafe { self.stream.get_raw() };
+
+        unsafe {
+            let res = cuStreamBeginCapture_v2(stream_raw, 2);
+            if res != 0 {
+                return Err(TRTError::CudaError(cuda_rs::error::CuError::from(res)));
+            }
+        }
+
+        if !context.enqueue_v3(&self.stream) {
+            let mut graph: CUgraph = std::ptr::null_mut();
+            unsafe {
+                cuStreamEndCapture(stream_raw, &mut graph);
+                if !graph.is_null() {
+                    cuGraphDestroy(graph);
+                }
+            }
+            return Err(TRTError::EnqueueError);
+        }
+
+        let mut graph: CUgraph = std::ptr::null_mut();
+        unsafe {
+            let res = cuStreamEndCapture(stream_raw, &mut graph);
+            if res != 0 {
+                return Err(TRTError::CudaError(cuda_rs::error::CuError::from(res)));
+            }
+        }
+
+        let mut exec_graph: CUgraphExec = std::ptr::null_mut();
+        unsafe {
+            let res = cuGraphInstantiate_v2(
+                &mut exec_graph,
+                graph,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            );
+            cuGraphDestroy(graph);
+            if res != 0 {
+                return Err(TRTError::CudaError(cuda_rs::error::CuError::from(res)));
+            }
+        }
+
+        if let Some(old_exec) = self.cuda_graph_exec.replace(exec_graph) {
+            unsafe { cuGraphExecDestroy(old_exec) };
+        }
+
+        Ok(())
+    }
+
+    pub fn invalidate_cuda_graph(&mut self) {
+        if let Some(exec) = self.cuda_graph_exec.take() {
+            unsafe { cuGraphExecDestroy(exec) };
+        }
+        self.graph_captured_shapes.clear();
+    }
+
     pub fn inference(
         &mut self,
         feed_dict: &HashMap<&str, &Tensor>,
@@ -122,6 +198,7 @@ impl TRTEngine {
             None => &self.stream,
         };
 
+        let mut shapes_changed = false;
         for (name, input_tensor) in feed_dict {
             let tensor = match self.tensors.get_mut(name.to_owned()) {
                 Some(tensor) => tensor,
@@ -133,11 +210,31 @@ impl TRTEngine {
                 if !context.set_input_shape(name, new_shape.0.as_slice()) {
                     return Err(TRTError::ShapeError(new_shape.0.clone()));
                 }
+                shapes_changed = true;
             }
             tensor.copy_from(input_tensor, Some(stream))?;
         }
 
-        // TODO: validate shapes, (batch size)
+        if shapes_changed {
+            self.invalidate_cuda_graph();
+        }
+
+        if let Some(exec_graph) = self.cuda_graph_exec {
+            if stream.is_some() {
+                self.invalidate_cuda_graph();
+            } else {
+                let stream_raw = unsafe { self.stream.get_raw() };
+                unsafe {
+                    let res = cuGraphLaunch(exec_graph, stream_raw);
+                    if res != 0 {
+                        return Err(TRTError::CudaError(cuda_rs::error::CuError::from(
+                            res,
+                        )));
+                    }
+                }
+                return Ok(&self.tensors);
+            }
+        }
 
         if !context.enqueue_v3(stream) {
             return Err(TRTError::EnqueueError);
@@ -211,6 +308,8 @@ impl TRTEngine {
 
 impl Drop for TRTEngine {
     fn drop(&mut self) {
+        self.invalidate_cuda_graph();
+
         if let Some(context) = self.context.take() {
             std::mem::drop(context);
         }
