@@ -27,31 +27,26 @@ fn main() {
         "CUDA_INCLUDE_PATH",
         vec!["/opt/cuda/include", "/usr/local/cuda/include"],
         "cuda.h",
-    ).expect("Could not find CUDA include path");
+    )
+    .expect("Could not find CUDA include path");
 
     let tensorrt_include_dir = find_dir(
         "TENSORRT_INCLUDE_PATH",
         vec!["/usr/local/include", "/usr/include/x86_64-linux-gnu"],
         "NvInfer.h",
-    ).expect("Could not find TensorRT include path");
+    )
+    .expect("Could not find TensorRT include path");
 
     let tensorrt_library_dir = find_dir(
         "TENSORRT_LIB_PATH",
         vec!["/usr/local/lib", "/usr/lib/x86_64-linux-gnu"],
         "libnvinfer.so",
-    ).expect("Could not find TensorRT library path");
+    )
+    .expect("Could not find TensorRT library path");
 
-    let include_files = vec![
-        "cxx/include/logger.h",
-        "cxx/include/runtime.h"
-    ];
-    let cpp_files = vec![
-        "cxx/src/logger.cpp",
-        "cxx/src/runtime.cpp"
-    ];
-    let rust_files = vec![
-        "src/lib.rs",
-    ];
+    let include_files = vec!["cxx/include/logger.h", "cxx/include/runtime.h"];
+    let cpp_files = vec!["cxx/src/logger.cpp", "cxx/src/runtime.cpp"];
+    let rust_files = vec!["src/lib.rs"];
 
     cxx_build::bridges(&rust_files)
         .include(cuda_include_dir)
@@ -62,13 +57,12 @@ fn main() {
         .flag_if_supported("-std=c++17")
         .compile("tensorrt-rs-sys-cxxbridge");
 
-    println!("cargo:rustc-link-search={}", tensorrt_library_dir.to_string_lossy());
+    println!(
+        "cargo:rustc-link-search={}",
+        tensorrt_library_dir.to_string_lossy()
+    );
 
-    let libraries = vec![
-        "nvinfer",
-        "nvinfer_plugin",
-        "cudla",
-    ];
+    let libraries = vec!["nvinfer", "nvinfer_plugin", "cudla"];
 
     for library in libraries {
         println!("cargo:rustc-link-lib={}", library);

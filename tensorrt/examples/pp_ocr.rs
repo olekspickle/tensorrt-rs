@@ -1,7 +1,7 @@
 use clap::Parser;
 use cuda_rs::{device::CuDevice, stream::CuStream};
-use tensorrt::{TRTEngine, TRTResult, Shape, DataType, Tensor};
 use std::{collections::HashMap, path::Path};
+use tensorrt::{DataType, Shape, TRTEngine, TRTResult, Tensor};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -15,7 +15,10 @@ struct Args {
 
 fn main() -> TRTResult<()> {
     let args = Args::parse();
-    let Args { engine: engine_path, .. } = args;
+    let Args {
+        engine: engine_path,
+        ..
+    } = args;
     let engine_path = Path::new(&engine_path);
 
     // 1 * 3 * 352 * 640
@@ -35,23 +38,18 @@ fn main() -> TRTResult<()> {
     let stream = CuStream::new()?;
 
     let input_tensor = Tensor::empty(&input_shape, dtype, &stream)?;
-    input_tensor.get_memory().copy_from_raw(
-        host_ptr as _, mem_size, Some(&stream)
-    )?;
+    input_tensor
+        .get_memory()
+        .copy_from_raw(host_ptr as _, mem_size, Some(&stream))?;
 
     let mut engine = TRTEngine::new(&engine_path, &stream).unwrap();
 
     engine.activate()?;
 
-    let max_shape_dict = HashMap::from([
-        ("x", &input_shape),
-        ("sigmoid_0.tmp_0", &output_shape),
-    ]);
+    let max_shape_dict = HashMap::from([("x", &input_shape), ("sigmoid_0.tmp_0", &output_shape)]);
     engine.allocate_io_tensors(&max_shape_dict, None)?;
 
-    let feed_dict = HashMap::from([
-        ("x", &input_tensor),
-    ]);
+    let feed_dict = HashMap::from([("x", &input_tensor)]);
     engine.inference(&feed_dict, None)?;
 
     stream.synchronize()?;

@@ -7,10 +7,7 @@ pub struct Shape(pub Vec<i32>);
 
 impl Shape {
     pub fn size(&self) -> usize {
-        self.0
-            .iter()
-            .map(|x| *x as usize)
-            .product::<usize>()
+        self.0.iter().map(|x| *x as usize).product::<usize>()
     }
 }
 
@@ -24,25 +21,33 @@ impl Tensor {
     pub fn empty(shape: &Shape, dtype: DataType, stream: &CuStream) -> TRTResult<Self> {
         let mem_size = shape.size() * dtype.get_elem_size();
         let mem = DeviceMemory::new(mem_size, stream)?;
-        Ok(Self { mem, shape: shape.clone(), dtype })
+        Ok(Self {
+            mem,
+            shape: shape.clone(),
+            dtype,
+        })
     }
 
     pub fn from_memory(mem: DeviceMemory, shape: &Shape, dtype: DataType) -> Self {
-        Self { mem, shape: shape.clone(), dtype }
+        Self {
+            mem,
+            shape: shape.clone(),
+            dtype,
+        }
     }
 
     pub fn get_memory(&self) -> &DeviceMemory {
         &self.mem
     }
 
-    pub fn from_raw_ptr(
-        ptr: usize, shape: &Shape, dtype: DataType, stream: &CuStream
-    ) -> Self {
+    pub fn from_raw_ptr(ptr: usize, shape: &Shape, dtype: DataType, stream: &CuStream) -> Self {
         let mem_size = shape.size() * dtype.get_elem_size();
-        let mem = unsafe {
-            DeviceMemory::from_raw(ptr as _, mem_size, stream)
-        };
-        Self { mem, shape: shape.clone(), dtype }
+        let mem = unsafe { DeviceMemory::from_raw(ptr as _, mem_size, stream) };
+        Self {
+            mem,
+            shape: shape.clone(),
+            dtype,
+        }
     }
 
     pub unsafe fn get_raw_ptr(&self) -> usize {

@@ -1,18 +1,18 @@
+use crate::DataType;
 use crate::{
     error::{TRTError, TRTResult},
     tensor::{Shape, Tensor},
 };
-use crate::DataType;
 use cuda_rs::stream::CuStream;
 use cuda_rs_sys::{
-    cuGraphDestroy, cuGraphExecDestroy, cuGraphLaunch, cuStreamBeginCapture_v2,
-    cuStreamEndCapture, CUgraph, CUgraphExec, CUgraphNode,
+    cuGraphDestroy, cuGraphExecDestroy, cuGraphLaunch, cuStreamBeginCapture_v2, cuStreamEndCapture,
+    CUgraph, CUgraphExec, CUgraphNode,
 };
+use std::{collections::HashMap, fs, path::Path};
 use tensorrt_rs_sys::{
     logger::Severity,
     runtime::{CudaEngine, ExecutionContext, Runtime},
 };
-use std::{collections::HashMap, fs, path::Path};
 
 extern "C" {
     fn cuGraphInstantiate_v2(
@@ -36,7 +36,6 @@ pub struct TRTEngine {
 
 impl TRTEngine {
     pub fn new(engine_data: Vec<u8>, stream: &CuStream) -> TRTResult<Self> {
-
         let mut runtime = match Runtime::new() {
             Some(runtime) => runtime,
             None => return Err(TRTError::RuntimeCreationError),
@@ -208,7 +207,9 @@ impl TRTEngine {
             None => &self.stream,
         };
 
-        let context = self.context.as_mut()
+        let context = self
+            .context
+            .as_mut()
             .ok_or(TRTError::ExecutionContextNotInitialized)?;
 
         for (name, input_tensor) in feed_dict {
@@ -223,7 +224,9 @@ impl TRTEngine {
                     return Err(TRTError::ShapeError(new_shape.0.clone()));
                 }
                 if let Some(exec) = self.cuda_graph_exec.take() {
-                    unsafe { cuGraphExecDestroy(exec); }
+                    unsafe {
+                        cuGraphExecDestroy(exec);
+                    }
                 }
                 self.graph_captured_shapes.clear();
             }
@@ -235,9 +238,7 @@ impl TRTEngine {
             unsafe {
                 let res = cuGraphLaunch(exec_graph, stream_raw);
                 if res != 0 {
-                    return Err(TRTError::CudaError(cuda_rs::error::CuError::from(
-                        res,
-                    )));
+                    return Err(TRTError::CudaError(cuda_rs::error::CuError::from(res)));
                 }
             }
             return Ok(&self.tensors);
@@ -292,7 +293,9 @@ impl TRTEngine {
 
     pub fn allocate_io_tensors_float(&mut self, stream: &CuStream) -> TRTResult<()> {
         let tensors = self.enumerate_tensors();
-        let context = self.context.as_mut()
+        let context = self
+            .context
+            .as_mut()
             .ok_or(TRTError::ExecutionContextNotInitialized)?;
 
         for (name, shape, _dtype, is_input) in &tensors {

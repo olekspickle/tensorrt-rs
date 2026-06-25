@@ -18,7 +18,8 @@ rust::Vec<int32_t> CudaEngine::get_tensor_shape(rust::Str name) const noexcept {
     auto dims_vec = rust::Vec<int32_t>();
     dims_vec.reserve(dims.nbDims);
     for (int32_t i = 0; i < dims.nbDims; ++i) {
-        dims_vec.push_back(dims.d[i]);
+        // TRT 10: Dims::d[i] changed from int32_t to int64_t
+        dims_vec.push_back(static_cast<int32_t>(dims.d[i]));
     }
     return dims_vec;
 }
@@ -49,7 +50,8 @@ rust::Vec<int32_t> ExecutionContext::get_tensor_strides(rust::Str name) const no
     auto vec = rust::Vec<int32_t>();
     vec.reserve(dims.nbDims);
     for (int32_t i = 0; i < dims.nbDims; ++i) {
-        vec.push_back(dims.d[i]);
+        // TRT 10: Dims::d[i] changed from int32_t to int64_t
+        vec.push_back(static_cast<int32_t>(dims.d[i]));
     }
     return vec;
 }
@@ -71,7 +73,8 @@ rust::Vec<int32_t> ExecutionContext::get_tensor_shape(rust::Str name) const noex
     auto dims_vec = rust::Vec<int32_t>();
     dims_vec.reserve(dims.nbDims);
     for (int32_t i = 0; i < dims.nbDims; ++i) {
-        dims_vec.push_back(dims.d[i]);
+        // TRT 10: Dims::d[i] changed from int32_t to int64_t
+        dims_vec.push_back(static_cast<int32_t>(dims.d[i]));
     }
     return dims_vec;
 }
