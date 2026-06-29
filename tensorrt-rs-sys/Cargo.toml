@@ -12,7 +12,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cuda-rs = "0.1"
+cuda-rs = "0.2"
 cxx = { version = "1", features = ["c++17", "c++14"] }
 
 [build-dependencies]
