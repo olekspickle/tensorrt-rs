@@ -62,13 +62,17 @@ fn main() {
         tensorrt_library_dir.to_string_lossy()
     );
 
-    let libraries = vec!["nvinfer", "nvinfer_plugin", "cudla"];
-
+    let mut libraries = vec!["nvinfer", "nvinfer_plugin"];
+    if std::env::var("CUDA_DLA_LINK").is_ok() {
+        let cuda_ver = std::env::var("CUDA_VERSION").unwrap_or_else(|_| "12.6".into());
+        println!("cargo:rerun-if-env-changed=CUDA_DLA_LINK");
+        println!("cargo:rerun-if-env-changed=CUDA_VERSION");
+        println!("cargo:rustc-link-search=/usr/local/cuda-{cuda_ver}/targets/aarch64-linux/lib/");
+        libraries.push("cudla");
+    }
     for library in libraries {
         println!("cargo:rustc-link-lib={}", library);
     }
-    // Path for libcudla.so should be added explicitly somehow
-    println!("cargo:rustc-link-search=/usr/local/cuda-12.6/targets/aarch64-linux/lib/");
 
     for file in include_files {
         println!("cargo:rerun-if-changed={}", file);
